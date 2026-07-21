@@ -110,6 +110,26 @@ module.exports = async function rule(doc, context) {
 - **Изоляция кеша:** `context.cache` — общий объект в рамках одной сессии LSP. Ключи кеша = абсолютные пути.
 - **Backward compat:** без флага `--rule-scripts` поведение = v0.2.0 byte-for-byte.
 
+### Зависимости в плагинах (npm-hoisted layout)
+
+При установке через npm зависимости обёртки (`js-yaml`, etc.) **не лежат внутри `@nikolay-grudanov/vacuum-opencode-lsp/node_modules/`** — npm поднимает их на уровень проекта (`.opencode/node_modules/`).
+
+Поэтому в плагинах используй **стандартный require с поиском через `paths`**, а не хардкод пути через `context.wrapperRoot`:
+
+```js
+// ❌ Не работает в npm-installed layout
+const yaml = require(path.join(context.wrapperRoot, 'node_modules', 'js-yaml'));
+// → Error: Cannot find module '.../@nikolay-grudanov/vacuum-opencode-lsp/node_modules/js-yaml'
+
+// ✅ Работает в обоих layout-ах (npm-installed + source-tree)
+const yaml = require(require.resolve('js-yaml', {
+  paths: [path.dirname(module.filename), context.wrapperRoot],
+}));
+// → walks up node_modules tree, finds js-yaml at project root or wrapper root
+```
+
+`paths` ищет в каждой указанной директории `node_modules/`, потом поднимается выше (стандартный Node.js resolution).
+
 ### Полный рабочий пример
 
 См. `examples/rule-scripts/example-operationid-permission.js` — cross-artifact правило, которое проверяет что каждый `operationId` существует в permissions catalog.
@@ -251,4 +271,4 @@ MIT — см. [LICENSE](./LICENSE).
 
 - [daveshanley/vacuum](https://github.com/daveshanley/vacuum) — OpenAPI/AsyncAPI линтер
 - [vscode-languageserver](https://github.com/microsoft/vscode-languageserver-node) — LSP-фреймворк
-- Архитектурный паттерн заимствован из [dbml-lsp](https://github.com/holistics/dbml)
+- Архитектурный паттерн заимствован из [dbml-lsp](https://www.npmjs.com/package/dbml-lsp)
