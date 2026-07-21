@@ -1,0 +1,15 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "lsp": {
+    "vacuum-opencode-lsp": {
+      "command": [
+        "node",
+        "./node_modules/vacuum-opencode-lsp/index.js",
+        "--stdio",
+        "--ruleset",
+        "./.opencode/vacuum-ruleset.yaml"
+      ],
+      "extensions": [".yaml", ".yml", ".json"]
+    }
+  }
+}
