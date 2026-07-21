@@ -1,5 +1,5 @@
 {
-  "name": "vacuum-opencode-lsp",
+  "name": "@nikolay-grudanov/vacuum-opencode-lsp",
   "version": "0.3.0",
   "description": "LSP wrapper over vacuum CLI for OpenCode (and any LSP client). Provides real-time OpenAPI/AsyncAPI linting diagnostics with custom ruleset support and Node.js plugin script loading for cross-artifact validation.",
   "main": "index.js",
@@ -8,7 +8,8 @@
   },
   "scripts": {
     "start": "node index.js --stdio",
-    "test": "node test/test-ruleset-flag.js && node test/test-rule-scripts.js"
+    "test": "node test/test-ruleset-flag.js && node test/test-rule-scripts.js",
+    "prepublishOnly": "npm test"
   },
   "keywords": [
     "lsp",
@@ -34,11 +35,28 @@
   "peerDependencies": {
     "@quobix/vacuum": ">=0.29.0"
   },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nikolay-grudanov/vacuum-opencode-lsp.git"
+  },
+  "bugs": {
+    "url": "https://github.com/nikolay-grudanov/vacuum-opencode-lsp/issues"
+  },
+  "homepage": "https://github.com/nikolay-grudanov/vacuum-opencode-lsp#readme",
+  "author": {
+    "name": "Nikolay Grudanov",
+    "email": "grudanov.n.a@gmail.com",
+    "url": "https://github.com/nikolay-grudanov"
+  },
   "files": [
     "index.js",
     "lib/",
     "README.md",
     "LICENSE",
     "examples/"
-  ]
+  ],
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  }
 }

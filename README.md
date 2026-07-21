@@ -131,7 +131,7 @@ node examples/rule-scripts/example-operationid-permission.js
 
 ### Architectural Decision Record
 
-Полная мотивация, considered alternatives, trade-offs и consequences — в [docs/adr/0001-wrapper-side-plugin-loader.md](./docs/adr/0001-wrapper-side-plugin-loader.md).
+Полная мотивация, considered alternatives, trade-offs и consequences — в [`docs/adr/`](https://github.com/nikolay-grudanov/vacuum-opencode-lsp/tree/main/docs/adr) GitHub-репозитории (ADR'ы не включаются в npm-пакет).
 
 ## CLI-флаги обёртки
 
