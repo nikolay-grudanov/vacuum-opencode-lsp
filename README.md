@@ -83,6 +83,7 @@ module.exports = async function rule(doc, context) {
   // context   : {
   //   docPath       : string — абсолютный путь к файлу
   //   workspaceRoot : string — корень workspace (= cwd обёртки)
+  //   wrapperRoot   : string — путь к обёртке (= для resolve deps через require)
   //   vacuumDiags   : Diagnostic[] — то, что уже нашёл vacuum
   //   cache         : object — шарится между вызовами (для memoization)
   //   text          : string — raw YAML/JSON (для точных range)

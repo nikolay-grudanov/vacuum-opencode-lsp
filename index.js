@@ -277,6 +277,7 @@ async function validateTextDocument(textDocument) {
       const pluginDiagnostics = await ruleLoader.runScripts(parsed, {
         docPath: filePath,
         workspaceRoot: process.cwd(),
+        wrapperRoot: path.dirname(__filename),  // ADR-0002: ground-truth wrapper location
         vacuumDiags: diagnostics,
         cache: sharedScriptCache,
         text,  // raw document text — for scripts that need exact ranges

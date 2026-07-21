@@ -201,6 +201,36 @@ function cleanup(dir) {
     } finally { cleanup(dir); }
   });
 
+  // Case 11: wrapperRoot is forwarded to plugin context (ADR-0002)
+  await test('wrapperRoot is passed through to plugin context', async () => {
+    const dir = tmpDir();
+    try {
+      fs.writeFileSync(path.join(dir, 'check-wrapper.js'), `
+        module.exports = async function(doc, ctx) {
+          return [{
+            severity: 1,
+            range: { start: {line:0,character:0}, end:{line:0,character:1} },
+            code: 'wrapper-root-' + (ctx.wrapperRoot ? 'present' : 'missing'),
+            source: 'vacuum-lsp:rule-scripts',
+            message: 'wrapperRoot=' + (ctx.wrapperRoot || 'undefined')
+          }];
+        };
+      `);
+      const loader = new RuleLoader(dir);
+      const ctx = {
+        docPath: '/x',
+        workspaceRoot: '/y',
+        wrapperRoot: '/opt/vacuum-opencode-lsp',
+        vacuumDiags: [],
+        cache: {},
+      };
+      const diags = await loader.runScripts({}, ctx);
+      assert.strictEqual(diags.length, 1);
+      assert.strictEqual(diags[0].code, 'wrapper-root-present');
+      assert.match(diags[0].message, /wrapperRoot=\/opt\/vacuum-opencode-lsp/);
+    } finally { cleanup(dir); }
+  });
+
   // Case 10: non-.js files are ignored
   await test('non-.js files in dir are ignored', async () => {
     const dir = tmpDir();
