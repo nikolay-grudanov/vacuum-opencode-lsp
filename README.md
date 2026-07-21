@@ -174,6 +174,44 @@ Smoke-тест после установки:
 opencode debug lsp diagnostics path/to/your-spec.yaml
 ```
 
+## Debug logging
+
+Для диагностики проблем (особенно когда LSP возвращает неожиданные diagnostics) обёртка и rule-script'ы пишут отладочный лог в файл. **OpenCode 1.x strips env vars from child-process**, поэтому debug logging **file-based, не stderr-based**.
+
+### Переменные окружения
+
+| Variable | Default | Effect |
+|---|---|---|
+| `VACUUM_LSP_DEBUG_FILE` | `/tmp/vacuum-lsp-debug.log` | Путь к debug-логу (file-based) |
+| `VACUUM_LSP_DEBUG=off` | — | Полностью отключает debug logging |
+
+**Важно:** задать переменную **в среде OpenCode**, а не через shell при ручном запуске `opencode debug ...` — env должна быть видна child-process'у LSP-сервера. Самый надёжный способ — в `~/.bashrc` / `~/.zshrc` или в unit-файле systemd/TUI-launcher.
+
+### Что логируется
+
+- `rule-loader-init` — какие .js файлы плагинов найдены в `--rule-scripts` директории
+- `stage2-start` — на каждый `didOpen`: filePath, длина text, наличие operationId в text, parsed paths keys, wrapperRoot, workspaceRootCwd
+- `stage2-end` — сколько diagnostics вернули все плагины, краткий список (code + line + message)
+- Plugin-side: всё, что плагин сам пишет через `debugLog(label, data)` (см. examples)
+
+### Workflow отладки
+
+1. Задай `VACUUM_LSP_DEBUG_FILE=/tmp/my-debug.log` в среде где стартует OpenCode.
+2. Открой файл в редакторе или запусти `opencode debug lsp diagnostics path/to/file.yaml`.
+3. Прочитай `/tmp/my-debug.log` — там будет ground-truth: что пришло в обёртку, что обёртка передала плагинам, что плагины вернули.
+4. Нашёл аномалию → поправь код → повтори шаг 2. Diff в debug-логе покажет что изменилось.
+
+### Пример: "плагин возвращает 0 diagnostics, но я знаю что должен найти проблему"
+
+```
+$ cat /tmp/vacuum-lsp-debug.log
+[ts] rule-loader-init {"absDir":"/path/.opencode/rule-scripts","scriptFiles":["operationid-permission.js"]}
+[ts] stage2-start {"filePath":"/path/foo.yaml","textHasOperationId":true,"parsedPathsKeys":["/x"]}
+[plugin ts] loadPermissions-entry {"projectRoot":"/path","permissionsSize":0}
+```
+
+Если `permissionsSize=0`, но `parsedPathsKeys` показывает что operations есть — проблема в плагине: либо walk-up нашёл не ту `role_models/`, либо permissions пустой по другой причине. Смотри plugin code, добавь свой `debugLog` в нужное место.
+
 ## Пример ruleset
 
 Минимальный пример `.opencode/vacuum-ruleset.yaml`:

@@ -32,8 +32,30 @@
 const fs = require('fs');
 const path = require('path');
 
+// ─── Debug logging helper ──────────────────────────────────────────────
+// OpenCode 1.x strips env vars from child-process; stderr-based debug
+// logging doesn't work. Write to a file instead. Plugin authors can use
+// this helper to add their own debugLog('label', data) calls.
+//
+// Set VACUUM_LSP_DEBUG_FILE=/path/to/log in OpenCode env to redirect.
+// Set VACUUM_LSP_DEBUG=off to disable entirely.
+const DEBUG_FILE = process.env.VACUUM_LSP_DEBUG === 'off' ? null
+  : (process.env.VACUUM_LSP_DEBUG_FILE || '/tmp/vacuum-lsp-debug.log');
+function debugLog(label, data) {
+  if (!DEBUG_FILE) return;
+  try {
+    const ts = new Date().toISOString();
+    const payload = data ? ' ' + JSON.stringify(data) : '';
+    fs.appendFileSync(DEBUG_FILE, `[plugin ${ts}] ${label}${payload}\n`);
+  } catch {}
+}
+
 module.exports = async function operationidPermission(doc, context) {
   const diagnostics = [];
+  debugLog('plugin-invoked', {
+    docPath: context && context.docPath,
+    operationsCount: doc && doc.paths ? Object.keys(doc.paths).length : 0,
+  });
 
   // 1. Skip if this doesn't look like an OpenAPI/AsyncAPI spec with paths
   if (!doc || typeof doc !== 'object') return diagnostics;

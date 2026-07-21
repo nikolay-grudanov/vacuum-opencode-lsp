@@ -46,6 +46,22 @@ let ruleScriptsDir = null;       // v0.3.0: --rule-scripts
 let debounceMs = 300;
 let timeoutMs = 10000;
 
+// Debug logging — OpenCode 1.x strips env vars from child-process, so env-gated
+// logging is unreliable. Use file-based logging instead. File path can be set
+// via env var VACUUM_LSP_DEBUG_FILE, or defaults to /tmp/vacuum-lsp-debug.log.
+// To disable entirely, set VACUUM_LSP_DEBUG=off.
+const DEBUG_FILE = process.env.VACUUM_LSP_DEBUG === 'off' ? null
+  : (process.env.VACUUM_LSP_DEBUG_FILE || '/tmp/vacuum-lsp-debug.log');
+function debugLog(label, data) {
+  if (!DEBUG_FILE) return;
+  try {
+    const fs = require('fs');
+    const ts = new Date().toISOString();
+    const payload = data ? ' ' + JSON.stringify(data) : '';
+    fs.appendFileSync(DEBUG_FILE, `[${ts}] ${label}${payload}\n`);
+  } catch {}
+}
+
 for (let i = 0; i < args.length; i++) {
   const a = args[i];
   if (a === '--stdio') {
@@ -141,10 +157,12 @@ if (ruleScriptsDir) {
   if (fs.existsSync(absDir)) {
     ruleLoader = new RuleLoader(absDir);
     connection.console.log(`rule-scripts dir: ${absDir}`);
+    debugLog('rule-loader-init', { ruleScriptsDir, absDir, scriptFiles: fs.readdirSync(absDir).filter(f => f.endsWith('.js')) });
   } else {
     connection.console.log(
       `rule-scripts dir not found, skipping plugin stage: ${absDir}`
     );
+    debugLog('rule-loader-skip', { ruleScriptsDir, absDir, reason: 'dir-not-found' });
   }
 }
 
@@ -274,6 +292,18 @@ async function validateTextDocument(textDocument) {
         return;
       }
 
+      debugLog('stage2-start', {
+        filePath,
+        textLength: text.length,
+        textHasOperationId: text.includes('operationId'),
+        textHasMassSend: text.includes('getSaleSourcesMassSend'),
+        parsedPathsKeys: parsed && parsed.paths ? Object.keys(parsed.paths) : [],
+        parsedPathsCount: parsed && parsed.paths ? Object.keys(parsed.paths).length : 0,
+        wrapperRoot: path.dirname(__filename),
+        workspaceRootCwd: process.cwd(),
+        textFirstChars: text.slice(0, 80),
+      });
+
       const pluginDiagnostics = await ruleLoader.runScripts(parsed, {
         docPath: filePath,
         workspaceRoot: process.cwd(),
@@ -284,6 +314,14 @@ async function validateTextDocument(textDocument) {
       });
 
       diagnostics = mergeDiagnostics(diagnostics, pluginDiagnostics);
+      debugLog('stage2-end', {
+        pluginDiagnosticsCount: pluginDiagnostics.length,
+        pluginDiagnostics: pluginDiagnostics.map(d => ({
+          code: d.code,
+          line: d.range && d.range.start ? d.range.start.line : null,
+          message: (d.message || '').slice(0, 100),
+        })),
+      });
     } catch (err) {
       // Loader itself threw (shouldn't happen — try/catch is inside)
       // Log and continue with vacuum diagnostics only.
