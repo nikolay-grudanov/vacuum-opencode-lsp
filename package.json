@@ -1,14 +1,14 @@
 {
   "name": "vacuum-opencode-lsp",
-  "version": "0.2.0",
-  "description": "LSP wrapper over vacuum CLI for OpenCode (and any LSP client). Provides real-time OpenAPI/AsyncAPI linting diagnostics with custom ruleset support.",
+  "version": "0.3.0",
+  "description": "LSP wrapper over vacuum CLI for OpenCode (and any LSP client). Provides real-time OpenAPI/AsyncAPI linting diagnostics with custom ruleset support and Node.js plugin script loading for cross-artifact validation.",
   "main": "index.js",
   "bin": {
     "vacuum-opencode-lsp": "./index.js"
   },
   "scripts": {
     "start": "node index.js --stdio",
-    "test": "node test/test-ruleset-flag.js"
+    "test": "node test/test-ruleset-flag.js && node test/test-rule-scripts.js"
   },
   "keywords": [
     "lsp",
@@ -18,13 +18,16 @@
     "vacuum",
     "linting",
     "opencode",
-    "spectral"
+    "spectral",
+    "rule-scripts",
+    "plugin"
   ],
   "license": "MIT",
   "engines": {
     "node": ">=18.0.0"
   },
   "dependencies": {
+    "js-yaml": "^4.1.0",
     "vscode-languageserver": "^9.0.1",
     "vscode-languageserver-textdocument": "^1.0.12"
   },
@@ -33,6 +36,7 @@
   },
   "files": [
     "index.js",
+    "lib/",
     "README.md",
     "LICENSE",
     "examples/"
