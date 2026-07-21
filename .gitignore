@@ -8,3 +8,11 @@ test/fixtures/
 
 # Local agent working state (Miko .hermes/)
 .hermes/
+
+# Bundled vacuum binary (v0.4.0+).
+# The binary is fetched at publish-time by scripts/fetch-vacuum-binary.js
+# and shipped inside the npm tarball, but NOT committed to git (would add
+# ~65 MB to every clone/PR diff). bin/vacuum-version.json and
+# bin/LICENSE-vacuum are kept in git for audit.
+bin/vacuum
+bin/vacuum.exe

@@ -174,11 +174,41 @@ node examples/rule-scripts/example-operationid-permission.js
 
 Если ни один не найден — обёртка работает в режиме **built-in recommended** (только стандартные vacuum правила).
 
+## Bundled vacuum binary (v0.4.0+)
+
+Начиная с **v0.4.0** обёртка **поставляет собственный `vacuum` binary внутри npm-пакета** (`./bin/vacuum`). Версия binary pinned в `bin/vacuum-version.json` и обновляется только при новой публикации wrapper'а.
+
+**Зачем bundle, а не peer-dep**:
+- Юзер контролирует версию vacuum через bump `@nikolay-grudanov/vacuum-opencode-lsp@X.Y.Z`, а не через `@quobix/vacuum@X.Y.Z` — **single source of truth**
+- Нет postinstall network call при `npm install` обёртки (binary уже в tarball)
+- Reproducibility: `package-lock.json` фиксирует binary hash вместе с остальным пакетом
+- Защита от supply-chain: новая версия vacuum попадает к юзерам только после твоего осознанного bump'а обёртки
+
+**Источник binary**: `scripts/fetch-vacuum-binary.js` скачивает pre-built Go binary из официального GitHub release `daveshanley/vacuum/v<version>`, проверяет что он работает (`vacuum lint --help`), копирует в `./bin/vacuum` + сохраняет LICENSE-vacuum (MIT attribution).
+
+**Override priority** в `findVacuumBinary()`:
+1. `./bin/vacuum` — bundled (default)
+2. `@quobix/vacuum/bin/vacuum` — peer-dep (если юзер явно ставил @quobix/vacuum, например для CLI)
+3. PATH lookup
+
+**Skip bundle на этапе разработки** (если не хочешь качать binary для local dev):
+```bash
+SKIP_VACUUM_BUNDLE=1 npm run prepublishOnly  # или просто опустить этот шаг
+# Wrapper будет использовать peer-dep @quobix/vacuum или PATH
+```
+
+**Override версии при prepublish** (для maintenance releases):
+```bash
+VACUUM_VERSION=0.30.0 npm run prepublishOnly
+# Затем bump package.json до 0.4.1 и npm publish
+```
+
 ## Резолюция vacuum binary
 
-1. `<__dirname>/../node_modules/@quobix/vacuum/bin/vacuum` (рядом с пакетом)
-2. `<cwd>/node_modules/@quobix/vacuum/bin/vacuum` (в корне workspace)
-3. `which vacuum` (PATH lookup)
+1. `<__dirname>/bin/vacuum` — **bundled** (v0.4.0+, preferred)
+2. `<__dirname>/../node_modules/@quobix/vacuum/bin/vacuum` (peer-dep fallback)
+3. `<cwd>/node_modules/@quobix/vacuum/bin/vacuum`
+4. `which vacuum` (PATH lookup)
 
 Если не найден — обёртка **падает при старте** с понятной ошибкой.
 

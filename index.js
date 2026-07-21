@@ -113,16 +113,21 @@ const rulesetPath = resolveRuleset(rulesetOverride);
 // ─── Vacuum binary discovery ─────────────────────────────────────────────────
 //
 // Order:
-//   1. ../node_modules/@quobix/vacuum/bin/vacuum (when this wrapper is also
-//      installed as a node_module, peerDep resolution puts @quobix/vacuum
-//      next to it)
-//   2. <workspace>/node_modules/@quobix/vacuum/bin/vacuum
-//   3. PATH lookup (vacuum binary)
+//   1. ./bin/vacuum — BUNDLED binary shipped with this package (preferred).
+//      Pinned version controlled by us via prepublishOnly hook.
+//      See scripts/fetch-vacuum-binary.js and bin/vacuum-version.json.
+//   2. ../node_modules/@quobix/vacuum/bin/vacuum — peer-dep fallback when
+//      consumer installed @quobix/vacuum explicitly (e.g. for CLI usage).
+//   3. <workspace>/node_modules/@quobix/vacuum/bin/vacuum
+//   4. PATH lookup (vacuum binary)
 //
 function findVacuumBinary() {
-  const local = path.join(__dirname, '..', 'node_modules', '@quobix', 'vacuum', 'bin', 'vacuum');
+  const bundledName = process.platform === 'win32' ? 'vacuum.exe' : 'vacuum';
+  const bundled = path.join(__dirname, 'bin', bundledName);
+  if (fs.existsSync(bundled)) return bundled;
+  const local = path.join(__dirname, '..', 'node_modules', '@quobix', 'vacuum', 'bin', bundledName);
   if (fs.existsSync(local)) return local;
-  const cwdLocal = path.join(process.cwd(), 'node_modules', '@quobix', 'vacuum', 'bin', 'vacuum');
+  const cwdLocal = path.join(process.cwd(), 'node_modules', '@quobix', 'vacuum', 'bin', bundledName);
   if (fs.existsSync(cwdLocal)) return cwdLocal;
   // PATH lookup
   const which = require('child_process').spawnSync('which', ['vacuum']);
@@ -135,7 +140,10 @@ const VACUUM_BIN = findVacuumBinary();
 if (!VACUUM_BIN) {
   process.stderr.write(
     'vacuum-opencode-lsp: cannot find vacuum binary.\n' +
-    'Install @quobix/vacuum as a peer dep, or expose `vacuum` on PATH.\n'
+    'This package should bundle the binary via scripts/fetch-vacuum-binary.js.\n' +
+    'If you are consuming this from npm, please report a bug — the tarball\n' +
+    'should include bin/vacuum. As a fallback, install @quobix/vacuum@>=0.29.0\n' +
+    'or expose `vacuum` on PATH.\n'
   );
   process.exit(1);
 }
