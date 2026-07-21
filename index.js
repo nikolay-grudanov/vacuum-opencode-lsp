@@ -42,6 +42,7 @@ const os = require('os');
 
 const args = process.argv.slice(2);
 let rulesetOverride = null;
+let ruleScriptsDir = null;       // v0.3.0: --rule-scripts
 let debounceMs = 300;
 let timeoutMs = 10000;
 
@@ -52,13 +53,15 @@ for (let i = 0; i < args.length; i++) {
     continue;
   } else if (a === '--ruleset' || a === '-r') {
     rulesetOverride = args[++i];
+  } else if (a === '--rule-scripts') {  // v0.3.0
+    ruleScriptsDir = args[++i];
   } else if (a === '--debounce') {
     debounceMs = parseInt(args[++i], 10);
   } else if (a === '--timeout') {
     timeoutMs = parseInt(args[++i], 10);
   } else if (a === '--help' || a === '-h') {
     process.stderr.write(
-      'Usage: vacuum-opencode-lsp --stdio [--ruleset <path>] [--debounce <ms>] [--timeout <ms>]\n'
+      'Usage: vacuum-opencode-lsp --stdio [--ruleset <path>] [--rule-scripts <dir>] [--debounce <ms>] [--timeout <ms>]\n'
     );
     process.exit(0);
   } else {
@@ -128,6 +131,27 @@ const documents = new TextDocuments(TextDocument);
 
 let validationTimeout = null;
 
+// v0.3.0: RuleLoader for --rule-scripts (ADR-0001). Optional — null if flag absent.
+let ruleLoader = null;
+if (ruleScriptsDir) {
+  const RuleLoader = require('./lib/ruleLoader.js');
+  const absDir = path.isAbsolute(ruleScriptsDir)
+    ? ruleScriptsDir
+    : path.resolve(process.cwd(), ruleScriptsDir);
+  if (fs.existsSync(absDir)) {
+    ruleLoader = new RuleLoader(absDir);
+    connection.console.log(`rule-scripts dir: ${absDir}`);
+  } else {
+    connection.console.log(
+      `rule-scripts dir not found, skipping plugin stage: ${absDir}`
+    );
+  }
+}
+
+// Shared cache across all didChange events for the lifetime of this LSP process.
+// Plugin scripts can read/write context.cache to memoize expensive work.
+const sharedScriptCache = {};
+
 connection.onInitialize(() => ({
   capabilities: {
     textDocumentSync: TextDocumentSyncKind.Incremental
@@ -139,7 +163,9 @@ connection.onInitialized(() => {
     `vacuum-opencode-lsp initialized\n` +
     `  ruleset: ${rulesetPath || '(built-in recommended)'}\n` +
     `  vacuum:  ${VACUUM_BIN}\n` +
-    `  debounce: ${debounceMs}ms, timeout: ${timeoutMs}ms`
+    `  debounce: ${debounceMs}ms, timeout: ${timeoutMs}ms\n` +
+    `  rule-scripts: ${ruleLoader ? ruleLoader.dir : '(none)'}\n` +
+    `  version: ${require('./package.json').version}`
   );
 });
 
@@ -178,6 +204,7 @@ async function validateTextDocument(textDocument) {
 
   let diagnostics = [];
 
+  // Stage 1: vacuum spectral-report (unchanged from v0.2.0)
   try {
     const tmpFile = path.join(
       os.tmpdir(),
@@ -225,7 +252,56 @@ async function validateTextDocument(textDocument) {
     }
   }
 
+  // Stage 2: rule-scripts (v0.3.0, ADR-0001). Runs only if --rule-scripts provided.
+  // Runs on top of vacuum diagnostics; one bad script doesn't break the others.
+  if (ruleLoader) {
+    try {
+      const yaml = require('js-yaml');
+      let parsed;
+      try {
+        parsed = yaml.load(text);
+      } catch (yamlErr) {
+        connection.console.error(`YAML parse failed for ${filePath}: ${yamlErr.message}`);
+        // Still send vacuum diagnostics + a parse-error note
+        diagnostics.push({
+          severity: 1,
+          range: { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } },
+          code: 'rule-scripts:yaml-parse-error',
+          source: 'vacuum-lsp:rule-scripts',
+          message: `Cannot parse YAML: ${yamlErr.message}`,
+        });
+        connection.sendDiagnostics({ uri, diagnostics });
+        return;
+      }
+
+      const pluginDiagnostics = await ruleLoader.runScripts(parsed, {
+        docPath: filePath,
+        workspaceRoot: process.cwd(),
+        vacuumDiags: diagnostics,
+        cache: sharedScriptCache,
+      });
+
+      diagnostics = mergeDiagnostics(diagnostics, pluginDiagnostics);
+    } catch (err) {
+      // Loader itself threw (shouldn't happen — try/catch is inside)
+      // Log and continue with vacuum diagnostics only.
+      connection.console.error(`rule-scripts stage error: ${err.message}`);
+    }
+  }
+
   connection.sendDiagnostics({ uri, diagnostics });
+}
+
+/**
+ * Merge two diagnostic arrays. Plugin diagnostics have source
+ * 'vacuum-lsp:rule-scripts' (prefixed by RuleLoader), so there is no
+ * natural collision with vacuum diagnostics ('vacuum-lsp'). Plugin
+ * diagnostics are appended after vacuum diagnostics.
+ */
+function mergeDiagnostics(vacuumDiags, pluginDiags) {
+  // Simple append — sources differ, ranges can legitimately overlap
+  // (different rules targeting the same line).
+  return [...vacuumDiags, ...pluginDiags];
 }
 
 /**
