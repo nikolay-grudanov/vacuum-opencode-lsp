@@ -279,6 +279,7 @@ async function validateTextDocument(textDocument) {
         workspaceRoot: process.cwd(),
         vacuumDiags: diagnostics,
         cache: sharedScriptCache,
+        text,  // raw document text — for scripts that need exact ranges
       });
 
       diagnostics = mergeDiagnostics(diagnostics, pluginDiagnostics);

@@ -85,6 +85,7 @@ module.exports = async function rule(doc, context) {
   //   workspaceRoot : string — корень workspace (= cwd обёртки)
   //   vacuumDiags   : Diagnostic[] — то, что уже нашёл vacuum
   //   cache         : object — шарится между вызовами (для memoization)
+  //   text          : string — raw YAML/JSON (для точных range)
   // }
   // returns : LSP Diagnostic[] в формате:
   //   { severity: 0|1|2, range: {...}, code: 'rule-id',
