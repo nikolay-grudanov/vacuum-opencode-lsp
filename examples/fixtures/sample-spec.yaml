@@ -1,0 +1,33 @@
+openapi: 3.0.0
+info:
+  title: Example Spec
+  version: 1.0.0
+paths:
+  /users/{id}:
+    get:
+      operationId: getUser
+      responses:
+        '200':
+          description: OK
+    delete:
+      operationId: deleteUser
+      responses:
+        '204':
+          description: No Content
+  /users:
+    post:
+      operationId: registerUser
+      responses:
+        '201':
+          description: Created
+    get:
+      operationId: listUsers
+      responses:
+        '200':
+          description: OK
+  /_internal/scaffold:
+    get:
+      operationId: mock
+      responses:
+        '200':
+          description: Mock endpoint for OpenAPI validity

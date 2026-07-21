@@ -1,0 +1,7 @@
+{
+  "permissions": [
+    { "code": "getUser", "category": "rest-operation" },
+    { "code": "createUser", "category": "rest-operation" },
+    { "code": "deleteUser", "category": "rest-operation" }
+  ]
+}
