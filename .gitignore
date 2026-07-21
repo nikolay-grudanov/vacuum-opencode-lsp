@@ -5,3 +5,6 @@ package-lock.json
 .tmp/
 dist/test/
 test/fixtures/
+
+# Local agent working state (Miko .hermes/)
+.hermes/
