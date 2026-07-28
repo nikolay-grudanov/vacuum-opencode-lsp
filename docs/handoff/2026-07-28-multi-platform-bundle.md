@@ -139,6 +139,36 @@ Recommend starting with (a) for simplicity, evaluate (c) if users complain about
 
 ---
 
+## Air-gap mechanics (Kolya confirmed + fact-checked 2026-07-28)
+
+**Question raised by Kolya:** does postinstall go through npm proxy or direct from user machine?
+
+**Answer (with source-code evidence):** postinstall runs **directly from the user machine**, not through npm proxy.
+
+Source code proof (`@npm/run-script/lib/make-spawn-args.js:32`):
+```js
+const spawnOpts = {
+  env: spawnEnv,          // = { ...process.env, ...env } = full user environment
+  stdio,
+  stdioString,
+  cwd: path,              // cwd = node_modules/@scope/pkg/
+  shell: scriptShell,     // default true → spawn through user shell
+};
+```
+
+npm calls `child_process.spawn` with `shell: true`. Inside the postinstall, code like `https.get('https://github.com/foo.tar.gz')` makes a **direct TCP connection from the user process to github.com**.
+
+**Important detail:** `proxy` config in `.npmrc` only affects npm's own tarball-fetching. Inside postinstall, the script must explicitly read `process.env.HTTPS_PROXY` (which `@quobix/vacuum` does via `https-proxy-agent`). If a package's postinstall doesn't respect it, **traffic bypasses any proxy that npm was configured with**.
+
+**Kolya's bank reality:**
+- registry.npmjs.org → ✅ whitelisted (only way to ship JS packages)
+- github.com / objects.githubusercontent.com → ⚠️ currently works for prepublishOnly on Kolya's dev machine, but **may be banned anytime** on corporate laptops (Kolya explicitly stated: "я даже git clone не могу сделать")
+- Any CDN (jsdelivr, unpkg) → ❌ blocked
+- Custom hosts (*.quobix.com, *.daveshanley.dev) → ❌ blocked
+
+**Consequence for our distribution strategy:**
+Bundle is the only safe path. Not "safer than alternative" — **the only option** that survives future tightening of bank policy. Even postinstall-on-github is fragile.
+
 ## Frozen facts about Kolya's air-gap rule (DO NOT re-litigate)
 
 - ✅ Allowed endpoints at consumer install: `registry.npmjs.org`, `github.com`, `objects.githubusercontent.com`
