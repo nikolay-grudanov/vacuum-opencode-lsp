@@ -1,56 +1,42 @@
 # vacuum-opencode-lsp
 
-LSP-обёртка над [vacuum](https://github.com/daveshanley/vacuum) CLI для OpenCode (и любого LSP-клиента). Даёт real-time диагностику OpenAPI/AsyncAPI/JSON Schema спек в редакторе, включая кастомные правила из ruleset-файла.
+LSP wrapper over the [vacuum](https://github.com/daveshanley/vacuum) OpenAPI /
+AsyncAPI / JSON Schema linter. Adds a `--ruleset` flag and an optional Node.js
+plugin system, and bridges vacuum's `language-server` limitations inside
+OpenCode, VS Code, IntelliJ, and any other LSP client.
 
-## Что это
-
-`@quobix/vacuum` поставляет встроенный `language-server` (Go + glsp), но он **не передаёт ruleset через LSP** — только через cobra-флаги или env. Из-за ограничений OpenCode 1.x (cold start конфига, нет workspace/didChangeConfiguration) передать ruleset напрямую нативному серверу нельзя.
-
-Эта обёртка — **посредник**: запускается как обычный LSP-сервер через stdio, получает `didOpen`/`didChange` от OpenCode, и на каждый вызов спавнит `vacuum spectral-report` с нужным `--ruleset` флагом. Результат парсится в Spectral-формате и мапится в LSP `publishDiagnostics`.
-
-## Архитектура
-
-```
-OpenCode TUI
-   │  textDocument/didOpen, didChange
-   ▼
-vacuum-opencode-lsp (this wrapper, Node.js)
-   │  execFileSync('vacuum', ['spectral-report', '-r', RULESET, file])
-   ▼
-vacuum binary (@quobix/vacuum)
-   │  stdout: Spectral-format JSON
-   ▼
-this wrapper (map result.code → LSP Diagnostic)
-   │  textDocument/publishDiagnostics
-   ▼
-OpenCode TUI (editor squiggles)
-```
-
-## Установка
+## Installation
 
 ```bash
-# 1. Установить peer-зависимости
-npm install --save-dev @quobix/vacuum vacuum-opencode-lsp
-
-# 2. Положить ruleset рядом с проектом
-mkdir -p .opencode
-cp path/to/your-ruleset.yaml .opencode/vacuum-ruleset.yaml
+npm install -g @nikolay-grudanov/vacuum-opencode-lsp
 ```
 
-## Конфигурация OpenCode
+The wrapper bundles the `vacuum` binary (pinned version) inside the npm
+tarball, so no peer-dep install is required.
 
-В `.opencode/opencode.jsonc` добавь в секцию `lsp`:
+## Usage as an LSP server
+
+```bash
+vacuum-opencode-lsp --stdio
+```
+
+For a project with custom rules, point at a ruleset:
+
+```bash
+vacuum-opencode-lsp --stdio --ruleset path/to/vacuum-ruleset.yaml
+```
+
+## Integration with OpenCode
+
+Add to `.opencode/opencode.jsonc`:
 
 ```jsonc
 {
   "lsp": {
     "vacuum-opencode-lsp": {
       "command": [
-        "node",
-        "./node_modules/vacuum-opencode-lsp/index.js",
-        "--stdio",
-        "--ruleset", "./.opencode/vacuum-ruleset.yaml",
-        "--rule-scripts", "./.opencode/rule-scripts"
+        "vacuum-opencode-lsp",
+        "--stdio"
       ],
       "extensions": [".yaml", ".yml", ".json"]
     }
@@ -58,218 +44,50 @@ cp path/to/your-ruleset.yaml .opencode/vacuum-ruleset.yaml
 }
 ```
 
-**Важно:** OpenCode читает LSP-конфиг только при **cold start**. После изменения `opencode.jsonc` — перезапусти TUI.
+OpenCode reloads its LSP config only on cold restart — restart the TUI after
+editing `opencode.jsonc`.
 
-## Rule scripts (v0.3.0)
+To add custom rules, drop a `vacuum-ruleset.yaml` next to the project root
+(or in `.opencode/`) and pass `--ruleset` explicitly. See the
+[Two kinds of rules](#two-kinds-of-rules) section below.
 
-Начиная с v0.3.0, обёртка поддерживает второй extension point: **Node.js plugin-скрипты** для cross-artifact правил, которые невозможно выразить в YAML vacuum ruleset (cross-file I/O, разрешение ссылок между артефактами, обращения к внешним системам).
+## Integration with VS Code
 
-### Когда это нужно
+Add to your VS Code `settings.json`:
 
-- `operationId` в OpenAPI должен существовать как `permission.code` в `role_models/**` → plugin читает второй файл
-- `$ref` в одном спеке должен резолвиться в существующий файл → plugin проверяет наличие файлов
-- Любое правило, требующее **доступа к файлам за пределами текущего документа**
-
-### Контракт plugin-скрипта
-
-Каждый `.js` файл в директории `--rule-scripts` экспортирует **одну async-функцию**:
-
-```js
-const fs = require('fs');
-const path = require('path');
-
-module.exports = async function rule(doc, context) {
-  // doc       : object  — распарсенный YAML/JSON текущего файла
-  // context   : {
-  //   docPath       : string — абсолютный путь к файлу
-  //   workspaceRoot : string — корень workspace (= cwd обёртки)
-  //   wrapperRoot   : string — путь к обёртке (= для resolve deps через require)
-  //   vacuumDiags   : Diagnostic[] — то, что уже нашёл vacuum
-  //   cache         : object — шарится между вызовами (для memoization)
-  //   text          : string — raw YAML/JSON (для точных range)
-  // }
-  // returns : LSP Diagnostic[] в формате:
-  //   { severity: 0|1|2, range: {...}, code: 'rule-id',
-  //     source: 'vacuum-lsp:rule-scripts', message: string }
-  // throws → обёртка ловит try/catch, шлёт error diagnostic, НЕ роняет LSP
-
-  return [{
-    severity: 1,
-    range: { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } },
-    code: 'my-rule-id',
-    source: 'vacuum-lsp:rule-scripts',
-    message: 'Что-то не так с этим файлом',
-  }];
-};
+```json
+{
+  "vacuum-opencode-lsp.command": "vacuum-opencode-lsp",
+  "vacuum-opencode-lsp.args": ["--stdio"]
+}
 ```
 
-### Гарантии
+Or use any VS Code extension that supports a custom LSP server command.
 
-- **Безопасность:** один сломанный скрипт → error diagnostic, остальные скрипты работают.
-- **Hot reload:** mtime-based invalidation `require.cache`. Правка правила → следующий `didChange` подхватывает новую версию, рестарт обёртки не нужен.
-- **Изоляция кеша:** `context.cache` — общий объект в рамках одной сессии LSP. Ключи кеша = абсолютные пути.
-- **Backward compat:** без флага `--rule-scripts` поведение = v0.2.0 byte-for-byte.
+## Integration with IntelliJ IDEA
 
-### Зависимости в плагинах (npm-hoisted layout)
+1. Install the [LSP4IJ](https://github.com/redhat-developer/lsp4ij) plugin.
+2. Go to **Settings → Languages & Frameworks → Language Server**.
+3. Add a new server:
+   - **Command:** `vacuum-opencode-lsp`
+   - **Args:** `--stdio`
 
-При установке через npm зависимости обёртки (`js-yaml`, etc.) **не лежат внутри `@nikolay-grudanov/vacuum-opencode-lsp/node_modules/`** — npm поднимает их на уровень проекта (`.opencode/node_modules/`).
+## Two kinds of rules
 
-Поэтому в плагинах используй **стандартный require с поиском через `paths`**, а не хардкод пути через `context.wrapperRoot`:
+The wrapper supports two complementary extension points:
 
-```js
-// ❌ Не работает в npm-installed layout
-const yaml = require(path.join(context.wrapperRoot, 'node_modules', 'js-yaml'));
-// → Error: Cannot find module '.../@nikolay-grudanov/vacuum-opencode-lsp/node_modules/js-yaml'
+### 1. vacuum ruleset (YAML)
 
-// ✅ Работает в обоих layout-ах (npm-installed + source-tree)
-const yaml = require(require.resolve('js-yaml', {
-  paths: [path.dirname(module.filename), context.wrapperRoot],
-}));
-// → walks up node_modules tree, finds js-yaml at project root or wrapper root
-```
+Declarative Spectral-format rules. Best for static checks that only need
+the current document: presence of a field, value format, allowed
+enumerations, etc.
 
-`paths` ищет в каждой указанной директории `node_modules/`, потом поднимается выше (стандартный Node.js resolution).
-
-### Полный рабочий пример
-
-См. `examples/rule-scripts/example-operationid-permission.js` — cross-artifact правило, которое проверяет что каждый `operationId` существует в permissions catalog.
-
-Запуск standalone для проверки:
-
-```bash
-node examples/rule-scripts/example-operationid-permission.js
-# Standalone run: 2 diagnostic(s)
-#   [WARN] operationid-permission-not-found: operationId "listUsers" not found...
-#   [WARN] operationid-permission-not-found: operationId "registerUser" not found...
-```
-
-### Когда НЕ нужно использовать rule-scripts
-
-- Правило выразимо в YAML vacuum ruleset (наличие полей, формат значений, перечисления) → используйте `--ruleset`.
-- Правило не требует I/O / async → можно использовать vacuum custom functions (`-f <dir>`), хотя они ограничены Goja sandbox без `fs`.
-- Правило должно работать в CLI/CI независимо от LSP → переиспользуйте ту же логику в Node.js обёртке скрипта (см. `vacuum-lint.sh` в digital-architecture).
-
-### Architectural Decision Record
-
-Полная мотивация, considered alternatives, trade-offs и consequences — в [`docs/adr/`](https://github.com/nikolay-grudanov/vacuum-opencode-lsp/tree/main/docs/adr) GitHub-репозитории (ADR'ы не включаются в npm-пакет).
-
-## CLI-флаги обёртки
-
-| Флаг | Описание | Default |
-|---|---|---|
-| `--stdio` | Использовать stdio для LSP transport (обязателен для OpenCode) | всегда включён |
-| `--ruleset <path>`, `-r <path>` | Путь к vacuum ruleset (`.yaml`) | `cwd/.opencode/vacuum-ruleset.yaml` |
-| `--rule-scripts <dir>` **(v0.3.0)** | Путь к директории с Node.js plugin-скриптами (см. [Rule scripts](#rule-scripts-v030)) | `cwd/.opencode/rule-scripts` |
-| `--debounce <ms>` | Задержка перед валидацией после `didChange` | `300` |
-| `--timeout <ms>` | Таймаут subprocess `vacuum` | `10000` |
-| `--help`, `-h` | Показать usage и выйти | — |
-
-## Резолюция ruleset
-
-Порядок поиска (первый существующий путь побеждает):
-
-1. `--ruleset <path>` из CLI (абсолютный или относительный к `cwd`)
-2. `<cwd>/.opencode/vacuum-ruleset.yaml`
-3. `<cwd>/vacuum-ruleset.yaml`
-
-Если ни один не найден — обёртка работает в режиме **built-in recommended** (только стандартные vacuum правила).
-
-## Bundled vacuum binary (v0.4.0+)
-
-Начиная с **v0.4.0** обёртка **поставляет собственный `vacuum` binary внутри npm-пакета** (`./bin/vacuum`). Версия binary pinned в `bin/vacuum-version.json` и обновляется только при новой публикации wrapper'а.
-
-**Зачем bundle, а не peer-dep**:
-- Юзер контролирует версию vacuum через bump `@nikolay-grudanov/vacuum-opencode-lsp@X.Y.Z`, а не через `@quobix/vacuum@X.Y.Z` — **single source of truth**
-- Нет postinstall network call при `npm install` обёртки (binary уже в tarball)
-- Reproducibility: `package-lock.json` фиксирует binary hash вместе с остальным пакетом
-- Защита от supply-chain: новая версия vacuum попадает к юзерам только после твоего осознанного bump'а обёртки
-
-**Источник binary**: `scripts/fetch-vacuum-binary.js` скачивает pre-built Go binary из официального GitHub release `daveshanley/vacuum/v<version>`, проверяет что он работает (`vacuum lint --help`), копирует в `./bin/vacuum` + сохраняет LICENSE-vacuum (MIT attribution).
-
-**Override priority** в `findVacuumBinary()`:
-1. `./bin/vacuum` — bundled (default)
-2. `@quobix/vacuum/bin/vacuum` — peer-dep (если юзер явно ставил @quobix/vacuum, например для CLI)
-3. PATH lookup
-
-**Skip bundle на этапе разработки** (если не хочешь качать binary для local dev):
-```bash
-SKIP_VACUUM_BUNDLE=1 npm run prepublishOnly  # или просто опустить этот шаг
-# Wrapper будет использовать peer-dep @quobix/vacuum или PATH
-```
-
-**Override версии при prepublish** (для maintenance releases):
-```bash
-VACUUM_VERSION=0.30.0 npm run prepublishOnly
-# Затем bump package.json до 0.4.1 и npm publish
-```
-
-## Резолюция vacuum binary
-
-1. `<__dirname>/bin/vacuum` — **bundled** (v0.4.0+, preferred)
-2. `<__dirname>/../node_modules/@quobix/vacuum/bin/vacuum` (peer-dep fallback)
-3. `<cwd>/node_modules/@quobix/vacuum/bin/vacuum`
-4. `which vacuum` (PATH lookup)
-
-Если не найден — обёртка **падает при старте** с понятной ошибкой.
-
-## Диагностика
-
-- `source: vacuum-lsp` — все diagnostics приходят от этой обёртки
-- `code` — ID правила (built-in или кастомного из ruleset)
-- `severity` — мапится из vacuum severity (0=error, 1=warning, 2=info)
-
-Smoke-тест после установки:
-
-```bash
-opencode debug lsp diagnostics path/to/your-spec.yaml
-```
-
-## Debug logging
-
-Для диагностики проблем (особенно когда LSP возвращает неожиданные diagnostics) обёртка и rule-script'ы пишут отладочный лог в файл. **OpenCode 1.x strips env vars from child-process**, поэтому debug logging **file-based, не stderr-based**.
-
-### Переменные окружения
-
-| Variable | Default | Effect |
-|---|---|---|
-| `VACUUM_LSP_DEBUG_FILE` | `/tmp/vacuum-lsp-debug.log` | Путь к debug-логу (file-based) |
-| `VACUUM_LSP_DEBUG=off` | — | Полностью отключает debug logging |
-
-**Важно:** задать переменную **в среде OpenCode**, а не через shell при ручном запуске `opencode debug ...` — env должна быть видна child-process'у LSP-сервера. Самый надёжный способ — в `~/.bashrc` / `~/.zshrc` или в unit-файле systemd/TUI-launcher.
-
-### Что логируется
-
-- `rule-loader-init` — какие .js файлы плагинов найдены в `--rule-scripts` директории
-- `stage2-start` — на каждый `didOpen`: filePath, длина text, наличие operationId в text, parsed paths keys, wrapperRoot, workspaceRootCwd
-- `stage2-end` — сколько diagnostics вернули все плагины, краткий список (code + line + message)
-- Plugin-side: всё, что плагин сам пишет через `debugLog(label, data)` (см. examples)
-
-### Workflow отладки
-
-1. Задай `VACUUM_LSP_DEBUG_FILE=/tmp/my-debug.log` в среде где стартует OpenCode.
-2. Открой файл в редакторе или запусти `opencode debug lsp diagnostics path/to/file.yaml`.
-3. Прочитай `/tmp/my-debug.log` — там будет ground-truth: что пришло в обёртку, что обёртка передала плагинам, что плагины вернули.
-4. Нашёл аномалию → поправь код → повтори шаг 2. Diff в debug-логе покажет что изменилось.
-
-### Пример: "плагин возвращает 0 diagnostics, но я знаю что должен найти проблему"
-
-```
-$ cat /tmp/vacuum-lsp-debug.log
-[ts] rule-loader-init {"absDir":"/path/.opencode/rule-scripts","scriptFiles":["operationid-permission.js"]}
-[ts] stage2-start {"filePath":"/path/foo.yaml","textHasOperationId":true,"parsedPathsKeys":["/x"]}
-[plugin ts] loadPermissions-entry {"projectRoot":"/path","permissionsSize":0}
-```
-
-Если `permissionsSize=0`, но `parsedPathsKeys` показывает что operations есть — проблема в плагине: либо walk-up нашёл не ту `role_models/`, либо permissions пустой по другой причине. Смотри plugin code, добавь свой `debugLog` в нужное место.
-
-## Пример ruleset
-
-Минимальный пример `.opencode/vacuum-ruleset.yaml`:
+`./.opencode/vacuum-ruleset.yaml`:
 
 ```yaml
 extends: [[vacuum:oas, recommended]]
 rules:
-  must-have-description:
+  operation-must-have-description:
     description: Every operation must have a description.
     given: $.paths[*][*]
     severity: warn
@@ -278,27 +96,121 @@ rules:
       function: defined
 ```
 
-## Известные ограничения
-
-- OpenCode 1.x **не пробрасывает** `initializationOptions` через LSP `initialize` для кастомных серверов → нельзя настроить ruleset через `opencode.jsonc` поле `initialization`. Используйте `--ruleset` CLI-флаг.
-- Обёртка спавнит `vacuum` subprocess на каждом `didChange` (с debounce) → для очень крупных спек (1000+ строк) latency может вырасти. Используйте `--debounce` побольше.
-- Парсинг YAML через vacuum требует, чтобы файл был **валидным** — при YAML syntax errors vacuum возвращает ошибку в stderr, а stdout пустой → 0 diagnostics. Чиньте YAML сначала.
-
-## Разработка
+Pass it on the command line:
 
 ```bash
-git clone https://github.com/<owner>/vacuum-opencode-lsp
+vacuum-opencode-lsp --stdio --ruleset ./.opencode/vacuum-ruleset.yaml
+```
+
+### 2. Node.js plugin scripts (--rule-scripts)
+
+For rules that don't fit YAML — cross-file I/O, reads from another spec,
+async checks, anything that needs `fs`. Each `.js` file in the directory
+exports one async function that returns LSP `Diagnostic[]`:
+
+```js
+// .opencode/rule-scripts/check-permissions.js
+const fs = require('fs');
+
+module.exports = async function rule(doc, context) {
+  const perms = JSON.parse(fs.readFileSync('permissions.json', 'utf8'));
+  const ops = Object.keys((doc.paths || {}));
+  return ops
+    .filter(op => !perms.some(p => p.name === op))
+    .map(op => ({
+      severity: 1,
+      range: { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } },
+      code: 'check-permissions:missing-permission',
+      source: 'vacuum-lsp:rule-scripts',
+      message: `operation "${op}" has no matching permission`,
+    }));
+};
+```
+
+```bash
+vacuum-opencode-lsp --stdio \
+  --ruleset ./.opencode/vacuum-ruleset.yaml \
+  --rule-scripts ./.opencode/rule-scripts
+```
+
+Properties:
+
+- One broken script → an error diagnostic, the others still run.
+- `require` in plugins uses standard Node.js resolution. Wrapper-shipped
+  deps (e.g. `js-yaml`) can be located with
+  `require(require.resolve('js-yaml', { paths: [module.filename, context.wrapperRoot] }))`.
+- `context.cache` is shared across `didChange` events within one LSP session
+  for memoization.
+
+## CLI flags
+
+| Flag | Description | Default |
+|---|---|---|
+| `--stdio` | Use stdio for LSP transport (required for OpenCode / VS Code / IntelliJ) | always on |
+| `--ruleset <path>`, `-r <path>` | Path to vacuum ruleset (`.yaml`) | `cwd/.opencode/vacuum-ruleset.yaml`, then `cwd/vacuum-ruleset.yaml` |
+| `--rule-scripts <dir>` | Directory with Node.js plugin scripts | no plugins |
+| `--debounce <ms>` | Delay before validation after `didChange` | `300` |
+| `--timeout <ms>` | Subprocess timeout for `vacuum` | `10000` |
+| `--help`, `-h` | Show usage and exit | — |
+
+If no `--ruleset` is found, the wrapper runs vacuum's built-in `recommended`
+ruleset only.
+
+## Features
+
+- Real-time validation of OpenAPI 3.x, AsyncAPI 2.x, and JSON Schema files
+  (`.yaml`, `.yml`, `.json`).
+- Custom Spectral-compatible ruleset via `--ruleset`.
+- Optional Node.js plugin system for cross-artifact rules via `--rule-scripts`.
+- `textDocument/publishDiagnostics` with proper line/column ranges.
+- stdin + `--base` for correct `$ref` resolution across folders.
+- Bundled `vacuum` binary — no peer-dep install or postinstall network call.
+
+## Known limitations
+
+- Some LSP clients don't propagate `initializationOptions` to custom servers.
+  Configure ruleset via the `--ruleset` CLI flag, not via `initialization`.
+- The wrapper spawns `vacuum` on each `didChange` (with debounce). For very
+  large specs (>1000 lines), increase `--debounce` to avoid jank.
+- YAML syntax errors return an empty stdout from vacuum — you get 0
+  diagnostics instead of the real parse error. Fix the YAML first.
+
+## Debug logging
+
+OpenCode 1.x strips env vars from child processes, so debug logging is
+**file-based**, not stderr-based.
+
+| Variable | Default | Effect |
+|---|---|---|
+| `VACUUM_LSP_DEBUG_FILE` | `/tmp/vacuum-lsp-debug.log` | Path to the debug log |
+| `VACUUM_LSP_DEBUG=off` | — | Disable debug logging entirely |
+
+Set the variable in the environment where OpenCode itself starts (e.g.
+`~/.bashrc`, `~/.zshrc`, systemd unit) — not in the shell where you run
+`opencode debug ...` manually.
+
+## Development
+
+```bash
+git clone https://github.com/nikolay-grudanov/vacuum-opencode-lsp
 cd vacuum-opencode-lsp
 npm install
 npm test
 ```
 
-## Лицензия
+Tests cover the `--ruleset` flag and the `--rule-scripts` plugin contract.
+`scripts/fetch-vacuum-binary.js` re-pulls the pinned `vacuum` binary into
+`bin/vacuum` (used by `prepublishOnly`).
 
-MIT — см. [LICENSE](./LICENSE).
+## License
 
-## Благодарности
+MIT — see [LICENSE](./LICENSE).
 
-- [daveshanley/vacuum](https://github.com/daveshanley/vacuum) — OpenAPI/AsyncAPI линтер
-- [vscode-languageserver](https://github.com/microsoft/vscode-languageserver-node) — LSP-фреймворк
-- Архитектурный паттерн заимствован из [dbml-lsp](https://www.npmjs.com/package/dbml-lsp)
+## Acknowledgements
+
+- [daveshanley/vacuum](https://github.com/daveshanley/vacuum) — the
+  OpenAPI/AsyncAPI linter at the core of this wrapper.
+- [vscode-languageserver](https://github.com/microsoft/vscode-languageserver-node) —
+  the LSP framework used.
+- Architectural inspiration from
+  [dbml-lsp](https://www.npmjs.com/package/dbml-lsp).
