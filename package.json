@@ -1,6 +1,6 @@
 {
   "name": "@nikolay-grudanov/vacuum-opencode-lsp",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "LSP wrapper over vacuum CLI for OpenCode (and any LSP client). Provides real-time OpenAPI/AsyncAPI linting diagnostics with custom ruleset support and Node.js plugin script loading for cross-artifact validation.",
   "main": "index.js",
   "bin": {
