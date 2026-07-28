@@ -230,33 +230,34 @@ async function validateTextDocument(textDocument) {
 
   let diagnostics = [];
 
-  // Stage 1: vacuum spectral-report (unchanged from v0.2.0)
+  // Stage 1: vacuum spectral-report.
+  // ADR-0005: read text via stdin (-i) + --base path.dirname(filePath).
+  // Previous tmp-file approach broke cross-folder $ref resolution
+  // (vacuum resolved refs relative to /tmp/, not to the real file).
   try {
-    const tmpFile = path.join(
-      os.tmpdir(),
-      `vacuum-lsp-${process.pid}-${Date.now()}.yaml`
-    );
-    fs.writeFileSync(tmpFile, text);
-
-    const args = ['spectral-report', '-o', '--no-pretty'];
+    const args = [
+      'spectral-report',
+      '-i',                                  // stdin instead of tmp-file
+      '-o',
+      '--no-pretty',
+    ];
     if (rulesetPath) {
       args.push('-r', rulesetPath);
     }
-    args.push(tmpFile);
+    args.push('--base', path.dirname(filePath));  // $ref base for cross-folder
 
     const stdout = execFileSync(VACUUM_BIN, args, {
+      input: text,
       encoding: 'utf8',
       timeout: timeoutMs,
       maxBuffer: 10 * 1024 * 1024,
-      cwd: path.dirname(filePath),
+      cwd: process.cwd(),
     });
-
-    try { fs.unlinkSync(tmpFile); } catch {}
 
     if (stdout && stdout.trim()) {
       const results = JSON.parse(stdout);
       if (Array.isArray(results)) {
-        diagnostics = results.map(vacuumResultToDiagnostic);
+        diagnostics = results.map(r => vacuumResultToDiagnostic(r, filePath));
       }
     }
   } catch (error) {
@@ -266,7 +267,7 @@ async function validateTextDocument(textDocument) {
       try {
         const results = JSON.parse(error.stdout);
         if (Array.isArray(results)) {
-          diagnostics = results.map(vacuumResultToDiagnostic);
+          diagnostics = results.map(r => vacuumResultToDiagnostic(r, filePath));
         }
       } catch (parseErr) {
         connection.console.error(`Failed to parse vacuum output: ${parseErr.message}`);
@@ -371,7 +372,12 @@ function isLikelySpec(text) {
 /**
  * Maps a single vacuum result (Spectral format) to an LSP Diagnostic.
  */
-function vacuumResultToDiagnostic(result) {
+function vacuumResultToDiagnostic(result, filePath) {
+  // ADR-0005: with stdin mode, result.source from vacuum is unreliable:
+  //   - sometimes empty string
+  //   - sometimes literal "stdin"
+  //   - sometimes a tmp-style relative path
+  // Fall back to the LSP file URI so diagnostics always point somewhere useful.
   let severity;
   switch (result.severity) {
     case 0: severity = DiagnosticSeverity.Error; break;
@@ -399,7 +405,9 @@ function vacuumResultToDiagnostic(result) {
     },
     message: result.message || result.code || 'Violation',
     code: result.code || 'vacuum',
-    source: 'vacuum-lsp'
+    source: (result.source && result.source !== 'stdin' && !result.source.startsWith('../../'))
+      ? result.source
+      : (filePath || 'vacuum-lsp'),
   };
 }
 
