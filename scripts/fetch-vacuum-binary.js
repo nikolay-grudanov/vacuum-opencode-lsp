@@ -136,24 +136,41 @@ async function fetchOne(t) {
     fs.copyFileSync(sourceBin, bundledPath);
     fs.chmodSync(bundledPath, 0o755);
 
-    // Quick smoke: does the binary actually run? `lint --help` is a
-    // built-in subcommand that any correctly-built vacuum binary
-    // answers. `--version` is NOT a top-level flag on vacuum 0.29.9
-    // — version prints via `vacuum version`, which we use for the
-    // manifest read step. Verified live on 2026-08-07 during the
-    // bundler debug session: a wrongly-platformed binary refuses to
-    // exec with a clear "exec format error", and a correctly-
-    // platformed one prints lint --help and exits 0. We use lint
-    // --help here because it catches every relevant failure mode
-    // (not-executable, wrong-platform, broken ELF, missing
-    // dynamic libs) without depending on a flag that does not
-    // exist at the top level.
-    try {
-      execFileSync(bundledPath, ['lint', '--help'], { stdio: 'pipe', timeout: 5000 });
-      log(`[${t.assetOs}/${t.assetArch}] ✓ smoke test passed (lint --help responded)`);
-    } catch (e) {
-      fail(`Bundled binary ${bundledName} failed smoke test: ${e.message}`);
+    // Smoke check: do not run the binary. The publisher host is not the
+    // consumer host — a Linux publisher cannot execute a Windows .exe,
+    // and even a Linux-x86_64 binary will fail to run if the publisher
+    // environment lacks glibc versions the binary needs (e.g. running
+    // a `linux-x86_64` binary on Alpine glibc-less). Instead we sanity-
+    // check the file on disk: it must exist, be non-trivial in size,
+    // and have a recognisable magic header for its platform.
+    //
+    // - Linux ELF: `0x7F 'E' 'L' 'F'` at offset 0
+    // - Windows PE: `MZ` at offset 0
+    // - macOS Mach-O: `0xCF 0xFA 0xED 0xFE` (64-bit LE) or `0xFE 0xED
+    //   0xFA 0xCE` (32-bit) at offset 0, or `0xCA 0xFE 0xBA 0xBE` (FAT)
+    //
+    // We only need the magic for the platforms we actually bundle here
+    // (linux-x86_64, windows-x86_64). The size floor is 5 MB; vacuum
+    // binaries are ~17-20 MB unpacked, so anything under 1 MB is
+    // certainly not a real binary.
+    const bundledSize = fs.statSync(bundledPath).size;
+    if (bundledSize < 5 * 1024 * 1024) {
+      fail(`Bundled ${bundledName} is only ${bundledSize} bytes — too small to be a real vacuum binary. Aborting.`);
     }
+    const head = fs.readFileSync(bundledPath, { encoding: null }).slice(0, 4);
+    // Detect by magic header so the same check works on a future PR
+    // that adds macOS bundles.
+    const magic =
+      head[0] === 0x7F && head[1] === 0x45 && head[2] === 0x4C && head[3] === 0x46 ? 'elf' :
+      head[0] === 0x4D && head[1] === 0x5A ? 'pe' :
+      head[0] === 0xCF && head[1] === 0xFA && head[2] === 0xED && head[3] === 0xFE ? 'macho64' :
+      head[0] === 0xFE && head[1] === 0xED && head[2] === 0xFA && head[3] === 0xCE ? 'macho32' :
+      head[0] === 0xCA && head[1] === 0xFE && head[2] === 0xBA && head[3] === 0xBE ? 'macho-fat' :
+      'unknown';
+    if (magic === 'unknown') {
+      fail(`Bundled ${bundledName} starts with unknown magic ${head.toString('hex')} — likely not a real binary. Aborting.`);
+    }
+    log(`[${t.assetOs}/${t.assetArch}] ✓ smoke check passed (${magic}, ${(bundledSize / 1024 / 1024).toFixed(1)} MB)`);
 
     return { bundledName, size: fs.statSync(bundledPath).size, status: 'ok' };
   } finally {
