@@ -136,12 +136,21 @@ async function fetchOne(t) {
     fs.copyFileSync(sourceBin, bundledPath);
     fs.chmodSync(bundledPath, 0o755);
 
-    // Quick smoke: does the binary actually run? `--version` is cheap and
-    // proves the binary is for the right platform (a darwin-arm64 binary
-    // refuses to start on linux-x86_64 with a clear exec format error).
+    // Quick smoke: does the binary actually run? `lint --help` is a
+    // built-in subcommand that any correctly-built vacuum binary
+    // answers. `--version` is NOT a top-level flag on vacuum 0.29.9
+    // — version prints via `vacuum version`, which we use for the
+    // manifest read step. Verified live on 2026-08-07 during the
+    // bundler debug session: a wrongly-platformed binary refuses to
+    // exec with a clear "exec format error", and a correctly-
+    // platformed one prints lint --help and exits 0. We use lint
+    // --help here because it catches every relevant failure mode
+    // (not-executable, wrong-platform, broken ELF, missing
+    // dynamic libs) without depending on a flag that does not
+    // exist at the top level.
     try {
-      execFileSync(bundledPath, ['--version'], { stdio: 'pipe', timeout: 5000 });
-      log(`[${t.assetOs}/${t.assetArch}] ✓ smoke test passed (--version responded)`);
+      execFileSync(bundledPath, ['lint', '--help'], { stdio: 'pipe', timeout: 5000 });
+      log(`[${t.assetOs}/${t.assetArch}] ✓ smoke test passed (lint --help responded)`);
     } catch (e) {
       fail(`Bundled binary ${bundledName} failed smoke test: ${e.message}`);
     }
