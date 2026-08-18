@@ -112,24 +112,57 @@ const rulesetPath = resolveRuleset(rulesetOverride);
 
 // ─── Vacuum binary discovery ─────────────────────────────────────────────────
 //
-// Order:
-//   1. ./bin/vacuum — BUNDLED binary shipped with this package (preferred).
-//      Pinned version controlled by us via prepublishOnly hook.
-//      See scripts/fetch-vacuum-binary.js and bin/vacuum-version.json.
-//   2. ../node_modules/@quobix/vacuum/bin/vacuum — peer-dep fallback when
-//      consumer installed @quobix/vacuum explicitly (e.g. for CLI usage).
-//   3. <workspace>/node_modules/@quobix/vacuum/bin/vacuum
-//   4. PATH lookup (vacuum binary)
+// ADR-0006: shipped-bundle layout in bin/ uses per-platform suffixes:
+//   bin/vacuum-linux-x64
+//   bin/vacuum-linux-arm64
+//   bin/vacuum-darwin-arm64
+//   bin/vacuum-windows-x64.exe
+//   bin/vacuum-windows-arm64.exe
 //
+// Resolution order, kept from v0.5.0:
+//   1. Bundled map lookup (process.platform + process.arch → bin file)
+//   2. Peer-dep @quobix/vacuum (only if the consumer installed it
+//      explicitly — current @quobix/vacuum is optional, so this path
+//      almost never resolves on consumer machines.)
+//   3. PATH lookup (vacuum binary)
+//
+// Long-tail platforms (darwin-x86_64, linux-i386, windows-i386) are
+// intentionally not bundled. Consumers on those hosts fall through to
+// peer-dep or PATH; see ADR-0006 §1.
+//
+// The BINARY_NAME_FOR_PLATFORM table below must stay in sync with
+// scripts/fetch-vacuum-binary.js (where the bundledBinaryName()
+// helper is defined).
+
+const BINARY_NAME_FOR_PLATFORM = {
+  'linux x64':   'vacuum-linux-x64',
+  'linux arm64': 'vacuum-linux-arm64',
+  'darwin arm64':'vacuum-darwin-arm64',
+  'win32 x64':   'vacuum-windows-x64.exe',
+  'win32 arm64': 'vacuum-windows-arm64.exe',
+};
+
+function bundledBinaryName() {
+  const key = `${process.platform} ${process.arch}`;
+  return BINARY_NAME_FOR_PLATFORM[key] || null;
+}
+
 function findVacuumBinary() {
-  const bundledName = process.platform === 'win32' ? 'vacuum.exe' : 'vacuum';
-  const bundled = path.join(__dirname, 'bin', bundledName);
-  if (fs.existsSync(bundled)) return bundled;
-  const local = path.join(__dirname, '..', 'node_modules', '@quobix', 'vacuum', 'bin', bundledName);
+  // 1. Bundled (preferred — works on air-gapped installs).
+  const bundledName = bundledBinaryName();
+  if (bundledName) {
+    const bundled = path.join(__dirname, 'bin', bundledName);
+    if (fs.existsSync(bundled)) return bundled;
+  }
+  // 2. Peer-dep @quobix/vacuum (rarely present; only if consumer installed
+  //    @quobix/vacuum explicitly, e.g. for CLI usage).
+  const isWindows = process.platform === 'win32';
+  const peerName = isWindows ? 'vacuum.exe' : 'vacuum';
+  const local = path.join(__dirname, '..', 'node_modules', '@quobix', 'vacuum', 'bin', peerName);
   if (fs.existsSync(local)) return local;
-  const cwdLocal = path.join(process.cwd(), 'node_modules', '@quobix', 'vacuum', 'bin', bundledName);
+  const cwdLocal = path.join(process.cwd(), 'node_modules', '@quobix', 'vacuum', 'bin', peerName);
   if (fs.existsSync(cwdLocal)) return cwdLocal;
-  // PATH lookup
+  // 3. PATH lookup.
   const which = require('child_process').spawnSync('which', ['vacuum']);
   if (which.status === 0) return which.stdout.toString().trim();
   return null;
