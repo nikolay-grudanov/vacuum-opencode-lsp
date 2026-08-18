@@ -115,10 +115,11 @@ const rulesetPath = resolveRuleset(rulesetOverride);
 //
 // ADR-0006: shipped-bundle layout in bin/ uses per-platform suffixes:
 //   bin/vacuum-linux-x64
-//   bin/vacuum-linux-arm64
-//   bin/vacuum-darwin-arm64
 //   bin/vacuum-windows-x64.exe
-//   bin/vacuum-windows-arm64.exe
+//
+// ADR-0008: the bundle was narrowed from 5 mainstream platforms (ADR-0006)
+// to 2 — linux-x86_64 (CI) and windows-x86_64 (analyst day-to-day
+// machines). Other platforms fall through to peer-dep / PATH.
 //
 // Resolution order, kept from v0.5.0:
 //   1. Bundled map lookup (process.platform + process.arch → bin file)
@@ -127,20 +128,13 @@ const rulesetPath = resolveRuleset(rulesetOverride);
 //      almost never resolves on consumer machines.)
 //   3. PATH lookup (vacuum binary)
 //
-// Long-tail platforms (darwin-x86_64, linux-i386, windows-i386) are
-// intentionally not bundled. Consumers on those hosts fall through to
-// peer-dep or PATH; see ADR-0006 §1.
-//
 // The BINARY_NAME_FOR_PLATFORM table below must stay in sync with
 // scripts/fetch-vacuum-binary.js (where the bundledBinaryName()
 // helper is defined).
 
 const BINARY_NAME_FOR_PLATFORM = {
-  'linux x64':   'vacuum-linux-x64',
-  'linux arm64': 'vacuum-linux-arm64',
-  'darwin arm64':'vacuum-darwin-arm64',
-  'win32 x64':   'vacuum-windows-x64.exe',
-  'win32 arm64': 'vacuum-windows-arm64.exe',
+  'linux x64': 'vacuum-linux-x64',
+  'win32 x64': 'vacuum-windows-x64.exe',
 };
 
 function bundledBinaryName() {
