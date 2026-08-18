@@ -16,20 +16,32 @@ tarball, so no peer-dep install is required.
 
 ### Supported platforms
 
-The bundled layout covers the 5 mainstream platforms:
+The bundled layout covers **two** platforms — the team that
+consumes this package uses Linux x86_64 (CI default) and Windows
+x86_64 (analyst day-to-day machines):
 
 | OS | Arch | Bundled binary |
 |---|---|---|
 | linux | x86_64 | `bin/vacuum-linux-x64` |
-| linux | arm64 | `bin/vacuum-linux-arm64` |
-| darwin | arm64 | `bin/vacuum-darwin-arm64` |
 | windows | x86_64 | `bin/vacuum-windows-x64.exe` |
-| windows | arm64 | `bin/vacuum-windows-arm64.exe` |
 
-Consumers on **darwin-x86_64**, **linux-i386**, or **windows-i386**
-fall through to the `@quobix/vacuum` peer-dep (when installed)
-or a `vacuum` binary on `PATH`. The wrapper logs a clear error
-on startup if no binary is found. See ADR-0006 for the rationale.
+Anything **not** in this table falls through to the existing
+peer-dep / PATH fallback:
+
+| OS | Arch | What happens |
+|---|---|---|
+| linux | arm64 | uses `@quobix/vacuum` peer-dep or `PATH` lookup |
+| darwin | x86_64 | uses `@quobix/vacuum` peer-dep or `PATH` lookup |
+| darwin | arm64 | uses `@quobix/vacuum` peer-dep or `PATH` lookup |
+| windows | arm64 | uses `@quobix/vacuum` peer-dep or `PATH` lookup |
+| linux | i386 | uses `@quobix/vacuum` peer-dep or `PATH` lookup |
+| windows | i386 | uses `@quobix/vacuum` peer-dep or `PATH` lookup |
+
+The wrapper logs a clear error on startup if no binary resolves.
+See ADR-0008 for the rationale and ADR-0006 for the original
+wider bundle. Add-on platforms land via PRs that extend `TARGETS`
+in `scripts/fetch-vacuum-binary.js` and `BINARY_NAME_FOR_PLATFORM`
+in `index.js` in the same commit — keep them in sync.
 
 ## Usage as an LSP server
 
