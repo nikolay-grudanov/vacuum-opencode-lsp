@@ -37,6 +37,7 @@ const { execFileSync } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
+const diagnosticEnricher = require('./lib/diagnosticEnricher');
 
 // ─── CLI argument parsing ───────────────────────────────────────────────────
 
@@ -290,7 +291,7 @@ async function validateTextDocument(textDocument) {
     if (stdout && stdout.trim()) {
       const results = JSON.parse(stdout);
       if (Array.isArray(results)) {
-        diagnostics = results.map(r => vacuumResultToDiagnostic(r, filePath));
+        diagnostics = results.map(r => vacuumResultToDiagnostic(r, filePath, text));
       }
     }
   } catch (error) {
@@ -300,7 +301,7 @@ async function validateTextDocument(textDocument) {
       try {
         const results = JSON.parse(error.stdout);
         if (Array.isArray(results)) {
-          diagnostics = results.map(r => vacuumResultToDiagnostic(r, filePath));
+          diagnostics = results.map(r => vacuumResultToDiagnostic(r, filePath, text));
         }
       } catch (parseErr) {
         connection.console.error(`Failed to parse vacuum output: ${parseErr.message}`);
@@ -404,13 +405,29 @@ function isLikelySpec(text) {
 
 /**
  * Maps a single vacuum result (Spectral format) to an LSP Diagnostic.
+ *
+ * ADR-0007: the agent-visible Diagnostic.message is enriched via
+ * lib/diagnosticEnricher. OpenCode 1.18.8 (measured on 2026-08-07)
+ * renders only severity + line + column + message — code, source,
+ * data are dropped from the agent-visible text. The enricher puts
+ * the rule code, the OAS-family framing, and the repair hint into
+ * the visible message so the agent does not infer Swagger 2.0 from
+ * an OpenAPI 3.0.x violation.
+ *
+ * The enricher is fail-open (lib/diagnosticEnricher.enrich catches
+ * errors internally) so we don't need a try/catch here.
+ *
+ * Stage 2 plugin diagnostics are NOT routed through this function —
+ * they already own their messages and code, and the ADR explicitly
+ * scopes enrichment to Stage 1.
  */
-function vacuumResultToDiagnostic(result, filePath) {
+function vacuumResultToDiagnostic(result, filePath, docText) {
   // ADR-0005: with stdin mode, result.source from vacuum is unreliable:
   //   - sometimes empty string
   //   - sometimes literal "stdin"
   //   - sometimes a tmp-style relative path
-  // Fall back to the LSP file URI so diagnostics always point somewhere useful.
+  // We keep that info only inside Diagnostic.data — Diagnostic.source is
+  // now always the engine identifier "vacuum-lsp" (ADR-0007 §5).
   let severity;
   switch (result.severity) {
     case 0: severity = DiagnosticSeverity.Error; break;
@@ -424,6 +441,8 @@ function vacuumResultToDiagnostic(result, filePath) {
     end: { line: 0, character: 1 }
   };
 
+  const enriched = diagnosticEnricher.enrich(result, { docText });
+
   return {
     severity,
     range: {
@@ -436,11 +455,27 @@ function vacuumResultToDiagnostic(result, filePath) {
         character: Math.max(0, range.end.character || range.start.character + 1 || 1)
       }
     },
-    message: result.message || result.code || 'Violation',
+    message: enriched.message,
     code: result.code || 'vacuum',
-    source: (result.source && result.source !== 'stdin' && !result.source.startsWith('../../'))
-      ? result.source
-      : (filePath || 'vacuum-lsp'),
+    // Diagnostic.source is the engine identifier, per LSP convention.
+    // The vacuum document path (if trustworthy) goes into
+    // Diagnostic.data so a future structured-diagnostics consumer can
+    // reach it without losing it; OpenCode's current formatter drops it.
+    source: 'vacuum-lsp',
+    data: {
+      ...(enriched.data || {}),
+      vacuum: {
+        ...((enriched.data && enriched.data.vacuum) || {}),
+        // Preserve the upstream document path so external $ref
+        // diagnostics are not silently lost — only their visible
+        // mapping is, per ADR-0007 §4 (still an open question; ADR
+        // defers full cross-file URI routing to a separate decision).
+        originalSource: (result.source && result.source !== 'stdin' && !result.source.startsWith('../../'))
+          ? result.source
+          : null,
+        path: Array.isArray(result.path) ? result.path : [],
+      },
+    },
   };
 }
 
