@@ -4,14 +4,19 @@
 /**
  * scripts/fetch-vacuum-binary.js
  *
- * Downloads the bundled vacuum Go binaries for the 5 mainstream platforms
- * from the official daveshanley/vacuum GitHub release and copies them into
- * ./bin/. The binaries are what @nikolay-grudanov/vacuum-opencode-lsp ships
- * inside its npm tarball, so users don't need to install @quobix/vacuum
- * separately.
+ * Downloads the bundled vacuum Go binaries for the 2 platforms we
+ * support from the official daveshanley/vacuum GitHub release and copies
+ * them into ./bin/. The binaries are what
+ * @nikolay-grudanov/vacuum-opencode-lsp ships inside its npm tarball,
+ * so users don't need to install @quobix/vacuum separately.
  *
- * Bundled platforms (see ADR-0006):
- *   linux-x86_64, linux-arm64, darwin-arm64, windows-x86_64, windows-arm64
+ * Bundled platforms (see ADR-0008):
+ *   linux-x86_64, windows-x86_64
+ *
+ * ADR-0006 originally bundled 5 mainstream platforms. ADR-0008 narrowed
+ * the bundle to 2 after Kolya's explicit 2026-08-07 instruction:
+ * the package is built for the team first, broader platforms on
+ * demand later.
  *
  * Why bundle the binaries instead of relying on @quobix/vacuum peer-dep:
  * - User controls version via @nikolay-grudanov/vacuum-opencode-lsp version
@@ -52,12 +57,15 @@ const BIN_DIR = path.join(__dirname, '..', 'bin');
 // - assetOs/assetArch match the upstream tarball filename
 //   (vacuum_<version>_<os>_<arch>.tar.gz)
 // - binaryExt is "" on POSIX (file is named `vacuum`) and ".exe" on Windows
+//
+// ADR-0008: bundled set was narrowed from 5 mainstream platforms to 2.
+// The team that consumes this package uses Linux x86_64 (CI) and
+// Windows x86_64 (analyst day-to-day machines). Other platforms
+// (linux-arm64, darwin-arm64, darwin-x86_64, windows-arm64, the two
+// i386 variants) fall through to peer-dep / PATH fallback.
 const TARGETS = [
   { nodePlatform: 'linux', nodeArch: 'x64',   assetOs: 'linux',  assetArch: 'x86_64', binaryExt: ''     },
-  { nodePlatform: 'linux', nodeArch: 'arm64', assetOs: 'linux',  assetArch: 'arm64',  binaryExt: ''     },
-  { nodePlatform: 'darwin', nodeArch: 'arm64', assetOs: 'darwin', assetArch: 'arm64',  binaryExt: ''     },
   { nodePlatform: 'win32', nodeArch: 'x64',   assetOs: 'windows', assetArch: 'x86_64', binaryExt: '.exe' },
-  { nodePlatform: 'win32', nodeArch: 'arm64', assetOs: 'windows', assetArch: 'arm64',  binaryExt: '.exe' },
 ];
 
 // Filename the wrapper's findVacuumBinary() looks up for a given (platform, arch).
