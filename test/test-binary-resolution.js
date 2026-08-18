@@ -30,12 +30,10 @@ const assert = require('assert');
 
 // Mirror of BINARY_NAME_FOR_PLATFORM in index.js. If this drifts from
 // the wrapper, the test fails — a developer must update both copies.
+// ADR-0008: the bundled set is linux-x86_64 + windows-x86_64 only.
 const BINARY_NAME_FOR_PLATFORM = {
-  'linux x64':   'vacuum-linux-x64',
-  'linux arm64': 'vacuum-linux-arm64',
-  'darwin arm64':'vacuum-darwin-arm64',
-  'win32 x64':   'vacuum-windows-x64.exe',
-  'win32 arm64': 'vacuum-windows-arm64.exe',
+  'linux x64': 'vacuum-linux-x64',
+  'win32 x64': 'vacuum-windows-x64.exe',
 };
 
 // Mirror of bundledBinaryName() in index.js, but parameterized for testability.
@@ -71,10 +69,14 @@ function test(name, fn) {
   }
 
   // Case 2: long-tail platforms fall through (no bundled binary).
-  // These are intentionally excluded from the v0.6.0 main bundle;
-  // consumers on those hosts fall back to peer-dep / PATH.
+  // These are intentionally excluded from the v0.6.0 bundle per
+  // ADR-0008 — the team uses linux-x86_64 and windows-x86_64 only.
+  // Consumers on these hosts fall back to peer-dep / PATH.
   for (const [platform, arch] of [
+    ['linux',  'arm64'],
+    ['darwin', 'arm64'],
     ['darwin', 'x64'],
+    ['win32',  'arm64'],
     ['linux',  'i386'],
     ['win32',  'i386'],
   ]) {
@@ -116,6 +118,6 @@ function test(name, fn) {
   if (failed > 0) {
     process.exit(1);
   } else {
-    console.log('✓ PASS: BINARY_NAME_FOR_PLATFORM covers the 5 mainstream platforms; long-tail falls through.');
+    console.log('✓ PASS: BINARY_NAME_FOR_PLATFORM covers the 2 supported platforms (linux-x86_64, windows-x86_64); 6 long-tail platforms fall through.');
   }
 })();
