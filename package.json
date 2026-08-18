@@ -8,7 +8,7 @@
   },
   "scripts": {
     "start": "node index.js --stdio",
-    "test": "node test/test-ruleset-flag.js && node test/test-rule-scripts.js",
+    "test": "node test/test-ruleset-flag.js && node test/test-rule-scripts.js && node test/test-binary-resolution.js",
     "prepublishOnly": "node scripts/fetch-vacuum-binary.js && npm test"
   },
   "keywords": [
