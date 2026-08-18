@@ -14,6 +14,23 @@ npm install -g @nikolay-grudanov/vacuum-opencode-lsp
 The wrapper bundles the `vacuum` binary (pinned version) inside the npm
 tarball, so no peer-dep install is required.
 
+### Supported platforms
+
+The bundled layout covers the 5 mainstream platforms:
+
+| OS | Arch | Bundled binary |
+|---|---|---|
+| linux | x86_64 | `bin/vacuum-linux-x64` |
+| linux | arm64 | `bin/vacuum-linux-arm64` |
+| darwin | arm64 | `bin/vacuum-darwin-arm64` |
+| windows | x86_64 | `bin/vacuum-windows-x64.exe` |
+| windows | arm64 | `bin/vacuum-windows-arm64.exe` |
+
+Consumers on **darwin-x86_64**, **linux-i386**, or **windows-i386**
+fall through to the `@quobix/vacuum` peer-dep (when installed)
+or a `vacuum` binary on `PATH`. The wrapper logs a clear error
+on startup if no binary is found. See ADR-0006 for the rationale.
+
 ## Usage as an LSP server
 
 ```bash
