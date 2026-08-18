@@ -182,6 +182,11 @@ ruleset only.
 - `textDocument/publishDiagnostics` with proper line/column ranges.
 - stdin + `--base` for correct `$ref` resolution across folders.
 - Bundled `vacuum` binary — no peer-dep install or postinstall network call.
+- Agent-friendly diagnostic messages — built-in vacuum rules like
+  `no-$ref-siblings` are enriched with the OpenAPI family and a
+  concrete repair hint (`allOf`, etc.) so the coding agent does not
+  infer Swagger 2.0 from an OpenAPI 3.0.x violation. Custom rules
+  and Stage 2 plugin diagnostics are passed through unchanged.
 
 ## Known limitations
 
