@@ -58,7 +58,8 @@
     "LICENSE",
     "examples/",
     "bin/",
-    "scripts/"
+    "scripts/",
+    "skills/"
   ],
   "publishConfig": {
     "access": "public",
