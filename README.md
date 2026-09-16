@@ -199,6 +199,35 @@ ruleset only.
   concrete repair hint (`allOf`, etc.) so the coding agent does not
   infer Swagger 2.0 from an OpenAPI 3.0.x violation. Custom rules
   and Stage 2 plugin diagnostics are passed through unchanged.
+- Skill pack for AI agents (see [Skills](#skills) below) — three
+  `SKILL.md` files cover LSP setup, declarative rule authoring, and
+  JS plugin authoring, so an agent can scaffold correct `vacuum-ruleset.yaml`
+  and `rule-scripts/*.js` files without re-deriving the contract.
+
+## Skills
+
+This repo ships a small set of `SKILL.md` files under [`skills/`](./skills)
+for AI coding agents that work with `vacuum-opencode-lsp` in consumer
+projects. They are the canonical reference for the LSP plugin contract,
+Spectral rule patterns, and the `opencode.jsonc` wiring.
+
+| Skill | When to load it | What it covers |
+|---|---|---|
+| [`lsp-setup`](./skills/lsp-setup/SKILL.md) | Wiring the LSP into a new or existing project | Installation (global npm vs local), `opencode.jsonc` for OpenCode / VS Code / IntelliJ, `--ruleset` / `--rule-scripts` / `--debounce` / `--timeout` flags, debug logging, cold-restart gotchas |
+| [`vacuum-rule-authoring`](./skills/vacuum-rule-authoring/SKILL.md) | Writing static AST checks in `vacuum-ruleset.yaml` | Spectral format, `given` jsonpath patterns, built-in functions (`defined`, `truthy`, `pattern`, `enum`, `length`, `xor`, …), agent-friendly `message` templates, common pitfalls |
+| [`rule-script-authoring`](./skills/rule-script-authoring/SKILL.md) | Writing cross-artifact checks in `rule-scripts/*.js` | Plugin contract (`async function rule(doc, context)` → `Diagnostic[]`), `source: 'vacuum-lsp:rule-scripts'`, `context.cache` memoization, dependency resolution via `require.resolve`, hot reload, standalone smoke tests |
+
+Each skill references the relevant ADR in [`docs/adr/`](./docs/adr) and the
+runtime example in [`examples/`](./examples), and is kept in sync with the
+plugin contract defined in [ADR-0001](./docs/adr/0001-wrapper-side-plugin-loader.md).
+If you publish a new version that changes the contract, update both the
+SKILL.md files and the ADR in the same commit.
+
+These skills are **not** installed by `npm install`. They are meant to be
+loaded by an agent manually (e.g. `skill_view(name='lsp-setup')` in Hermes,
+or copied verbatim into another agent's skill bank). The skills are also
+useful as a human reference — they document the same contract the
+`index.js` code follows.
 
 ## Known limitations
 
